@@ -275,7 +275,16 @@ func resourceAwsLbTargetGroup() *schema.Resource {
 					},
 				},
 			},
-
+			"preserve_client_ip": {
+				// Use TypeString to allow an "unspecified" value,
+				// since TypeBool only has true/false with false default.
+				// The conversion from bare true/false values in
+				// configurations to TypeString value is currently safe.
+				Type:             schema.TypeString,
+				Optional:         true,
+				DiffSuppressFunc: suppressEquivalentTypeStringBoolean,
+				ValidateFunc:     validateTypeStringNullableBoolean,
+			},
 			"tags": tagsSchema(),
 		},
 	}
@@ -483,6 +492,32 @@ func resourceAwsLbTargetGroupUpdate(d *schema.ResourceData, meta interface{}) er
 			attrs = append(attrs, &elbv2.TargetGroupAttribute{
 				Key:   aws.String("proxy_protocol_v2.enabled"),
 				Value: aws.String(strconv.FormatBool(d.Get("proxy_protocol_v2").(bool))),
+			})
+		}
+
+		if d.HasChange("preserve_client_ip") {
+			var preserveClientIP bool
+			if v, ok := d.GetOk("preserve_client_id"); ok && v != "" {
+				preserveClientIP, _ = strconv.ParseBool(v.(string)) // ignore error as previously validatated
+			} else {
+				preserveClientIP = true
+				switch d.Get("protocol").(string) {
+				case elbv2.ProtocolEnumTcp, elbv2.ProtocolEnumTls:
+					if d.Get("target_type") == elbv2.TargetTypeEnumIp {
+						preserveClientIP = false
+					}
+				}
+			}
+			switch d.Get("protocol").(string) {
+			case elbv2.ProtocolEnumUdp, elbv2.ProtocolEnumTcpUdp:
+				if preserveClientIP == false {
+					return fmt.Errorf("Client IP preservation cannot be disabled for UDP and TCP_UDP target groups")
+				}
+			}
+
+			attrs = append(attrs, &elbv2.TargetGroupAttribute{
+				Key:   aws.String("preserve_client_ip.enabled"),
+				Value: aws.String(strconv.FormatBool(preserveClientIP)),
 			})
 		}
 
@@ -715,6 +750,12 @@ func flattenAwsLbTargetGroupResource(d *schema.ResourceData, meta interface{}, t
 		case "load_balancing.algorithm.type":
 			loadBalancingAlgorithm := aws.StringValue(attr.Value)
 			d.Set("load_balancing_algorithm_type", loadBalancingAlgorithm)
+		case "preserve_client_ip.enabled":
+			enabled, err := strconv.ParseBool(aws.StringValue(attr.Value))
+			if err != nil {
+				return fmt.Errorf("Error converting preserve_client_ip.enabled to bool: %s", aws.StringValue(attr.Value))
+			}
+			d.Set("preserve_client_ip", aws.StringValue(attr.Value))
 		}
 	}
 
