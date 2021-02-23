@@ -42,6 +42,7 @@ func TestAccDataSourceAWSALBTargetGroup_basic(t *testing.T) {
 					resource.TestCheckResourceAttr(resourceNameArn, "health_check.0.healthy_threshold", "3"),
 					resource.TestCheckResourceAttr(resourceNameArn, "health_check.0.unhealthy_threshold", "3"),
 					resource.TestCheckResourceAttr(resourceNameArn, "health_check.0.matcher", "200-299"),
+					resource.TestCheckResourceAttr(resourceNameArn, "preserve_client_ip", "true"),
 
 					resource.TestCheckResourceAttr(resourceName, "name", targetGroupName),
 					resource.TestCheckResourceAttrSet(resourceName, "arn"),

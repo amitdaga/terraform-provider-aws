@@ -1303,6 +1303,85 @@ func TestAccAWSLBTargetGroup_stickinessInvalidALB(t *testing.T) {
 	})
 }
 
+func TestACCLBTargetGroup_preserveClientIPValid(t *testing.T) {
+	targetGroupName := fmt.Sprintf("test-target-group-%s", acctest.RandString(10))
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckAWSLBTargetGroupDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName, "instance", "TCP", nil),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckAWSLBTargetGroupExists(resourceName, &conf),
+					resource.TestCheckResourceAttr(resourceName, "preserve_client_ip", "true"),
+				),
+			},
+			{
+				Config: testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName, "instance", "UDP", nil),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckAWSLBTargetGroupExists(resourceName, &conf),
+					resource.TestCheckResourceAttr(resourceName, "preserve_client_ip", "true"),
+				),
+			},
+			{
+				Config: testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName, "instance", "TCP_UDP", nil),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckAWSLBTargetGroupExists(resourceName, &conf),
+					resource.TestCheckResourceAttr(resourceName, "preserve_client_ip", "true"),
+				),
+			},
+			{
+				Config: testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName, "ip", "UDP", nil),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckAWSLBTargetGroupExists(resourceName, &conf),
+					resource.TestCheckResourceAttr(resourceName, "preserve_client_ip", "false"),
+				),
+			},
+			{
+				Config: testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName, "ip", "TCP_UDP", nil),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckAWSLBTargetGroupExists(resourceName, &conf),
+					resource.TestCheckResourceAttr(resourceName, "preserve_client_ip", "false"),
+				),
+			},
+			{
+				Config: testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName, "instance", "TCP", "true"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckAWSLBTargetGroupExists(resourceName, &conf),
+					resource.TestCheckResourceAttr(resourceName, "preserve_client_ip", "true"),
+				),
+			},
+			{
+				Config: testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName, "instance", "TCP", "false"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckAWSLBTargetGroupExists(resourceName, &conf),
+					resource.TestCheckResourceAttr(resourceName, "preserve_client_ip", "false"),
+				),
+			},
+		},
+	})
+}
+
+func TestACCLBTargetGroup_preserveClientIPInvalid(t *testing.T) {
+	targetGroupName := fmt.Sprintf("test-target-group-%s", acctest.RandString(10))
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckAWSLBTargetGroupDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName, "instance", "UDP", "false"),
+				ExpectError: regexp.MustCompile("Client IP preservation cannot be disabled for UDP and TCP_UDP target groups"),
+			},
+			{
+				Config: testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName, "instance", "TCP_UDP", "false"),
+				ExpectError: regexp.MustCompile("Client IP preservation cannot be disabled for UDP and TCP_UDP target groups"),
+			},
+		},
+	})
+}
+
 func testAccCheckAWSLBTargetGroupExists(n string, res *elbv2.TargetGroup) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
@@ -2381,4 +2460,54 @@ resource "aws_vpc" "test" {
   }
 }
 `, protocol, stickyType, enabled)
+}
+
+func testAccAWSLBTargetGroupConfig_preserveClientIP(targetGroupName string, protocol string, targetType string, preserveClientIP string) string {
+	rgetGroupConfig_basic(targetGroupName string) string {
+		var preserveClientIPParam string
+		if preserveClientIP != nil {
+			preserveClientIPParam = fmt.Sprintf(`preserveClientIP=%s`, preserveClientIP)
+		}
+		return fmt.Sprintf(`
+	resource "aws_lb_target_group" "test" {
+	  name     = "%s"
+	  target_type = "%s"
+	  port     = 443
+	  protocol = "%s"
+	  vpc_id   = aws_vpc.test.id
+	
+	  deregistration_delay = 200
+	  slow_start           = 0
+
+	  %s
+	
+	  stickiness {
+		type            = "lb_cookie"
+		cookie_duration = 10000
+	  }
+	
+	  health_check {
+		path                = "/health"
+		interval            = 60
+		port                = 8081
+		protocol            = "HTTP"
+		timeout             = 3
+		healthy_threshold   = 3
+		unhealthy_threshold = 3
+		matcher             = "200-299"
+	  }
+	
+	  tags = {
+		Name = "TestAccAWSLBTargetGroup_basic"
+	  }
+	}
+	
+	resource "aws_vpc" "test" {
+	  cidr_block = "10.0.0.0/16"
+	
+	  tags = {
+		Name = "terraform-testacc-lb-target-group-basic"
+	  }
+	}
+	`, targetGroupName, targetType, protocol, preserveClientIP)
 }

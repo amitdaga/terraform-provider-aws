@@ -508,12 +508,6 @@ func resourceAwsLbTargetGroupUpdate(d *schema.ResourceData, meta interface{}) er
 					}
 				}
 			}
-			switch d.Get("protocol").(string) {
-			case elbv2.ProtocolEnumUdp, elbv2.ProtocolEnumTcpUdp:
-				if preserveClientIP == false {
-					return fmt.Errorf("Client IP preservation cannot be disabled for UDP and TCP_UDP target groups")
-				}
-			}
 
 			attrs = append(attrs, &elbv2.TargetGroupAttribute{
 				Key:   aws.String("preserve_client_ip.enabled"),
@@ -751,7 +745,7 @@ func flattenAwsLbTargetGroupResource(d *schema.ResourceData, meta interface{}, t
 			loadBalancingAlgorithm := aws.StringValue(attr.Value)
 			d.Set("load_balancing_algorithm_type", loadBalancingAlgorithm)
 		case "preserve_client_ip.enabled":
-			enabled, err := strconv.ParseBool(aws.StringValue(attr.Value))
+			_, err := strconv.ParseBool(aws.StringValue(attr.Value))
 			if err != nil {
 				return fmt.Errorf("Error converting preserve_client_ip.enabled to bool: %s", aws.StringValue(attr.Value))
 			}
@@ -849,6 +843,15 @@ func resourceAwsLbTargetGroupCustomizeDiff(_ context.Context, diff *schema.Resou
 			// HTTP(S) Target Groups cannot use TCP health checks
 			if p := healthCheck["protocol"].(string); strings.ToLower(p) == "tcp" {
 				return fmt.Errorf("HTTP Target Groups cannot use TCP health checks")
+			}
+		}
+	}
+
+	if v, ok := diff.GetOk("preserve_client_id"); ok && v != "" {
+		switch protocol { // ignore error as previously validatated
+		case elbv2.ProtocolEnumUdp, elbv2.ProtocolEnumTcpUdp:
+			if v == "false" {
+				return fmt.Errorf("Client IP preservation cannot be disabled for UDP and TCP_UDP target groups")
 			}
 		}
 	}
