@@ -282,6 +282,7 @@ func resourceAwsLbTargetGroup() *schema.Resource {
 				// configurations to TypeString value is currently safe.
 				Type:             schema.TypeString,
 				Optional:         true,
+				Computed:         true,
 				DiffSuppressFunc: suppressEquivalentTypeStringBoolean,
 				ValidateFunc:     validateTypeStringNullableBoolean,
 			},
@@ -496,22 +497,9 @@ func resourceAwsLbTargetGroupUpdate(d *schema.ResourceData, meta interface{}) er
 		}
 
 		if d.HasChange("preserve_client_ip") {
-			var preserveClientIP bool
-			if v, ok := d.GetOk("preserve_client_id"); ok && v != "" {
-				preserveClientIP, _ = strconv.ParseBool(v.(string)) // ignore error as previously validatated
-			} else {
-				preserveClientIP = true
-				switch d.Get("protocol").(string) {
-				case elbv2.ProtocolEnumTcp, elbv2.ProtocolEnumTls:
-					if d.Get("target_type") == elbv2.TargetTypeEnumIp {
-						preserveClientIP = false
-					}
-				}
-			}
-
 			attrs = append(attrs, &elbv2.TargetGroupAttribute{
 				Key:   aws.String("preserve_client_ip.enabled"),
-				Value: aws.String(strconv.FormatBool(preserveClientIP)),
+				Value: aws.String(d.Get("preserve_client_ip").(string)),
 			})
 		}
 
